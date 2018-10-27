@@ -5,17 +5,18 @@ import reactive2._
 
 import scala.concurrent.duration._
 
-sealed trait Command
+//sealed trait Command
 case object StartCheckout
 case object CancelCheckout
 case object CloseCheckout
 
-sealed trait Event
+//sealed trait Event
 case class ItemAdded(id: String)
 case class ItemRemoved(id: String)
 case class CheckoutStarted (checkoutRef: ActorRef)
 case object CheckoutCancelled
 case object CheckoutClosed
+case object CartEmpty
 
 case object TimerExpired
 case object CartTimer
@@ -26,6 +27,7 @@ case object Empty extends CartState
 case object NonEmpty extends CartState
 case object InCheckout extends CartState
 
+//data
 sealed trait CartData
 case class ItemsList(items: List[String]) extends CartData
 
@@ -60,30 +62,31 @@ class CartFSM extends FSM[CartState, CartData] {
         }
 
       }
-    case Event(CartActions.TimerExpired, _) =>
+    case Event(TimerExpired, _) =>
       println("chart time expired")
       goto(Empty) using ItemsList(List())
     case Event(StartCheckout, ItemsList(items)) =>
-      val checkoutActorFSM = context.system.actorOf(Props(new CheckoutFSM(context.self, items)))
+      val checkoutActorFSM = context.system.actorOf(Props(new CheckoutFSM(context.parent, context.self, items)))
       checkoutActorFSM ! CheckoutStarted(checkoutActorFSM)
       //replying to Order Manager startedCheckout and actorRef
       goto(InCheckout) using ItemsList(items) replying CheckoutStarted(checkoutActorFSM)
   }
 
   when(InCheckout) {
-    case Event(CartActions.CancelCheckout, cartData) =>
+    case Event(CancelCheckout, cartData) =>
       goto(NonEmpty) using cartData
-    case Event(CartActions.CloseCheckout, _) =>
+    case Event(CheckoutClosed, _) =>
+      context.parent ! CartEmpty
       goto(Empty) using ItemsList(List())
   }
 
   onTransition {
     case Empty -> NonEmpty =>
-      setTimer(CartActions.CartTimer.toString, CartActions.TimerExpired, 15.second)
+      setTimer(CartTimer.toString, TimerExpired, 15.second)
     case NonEmpty -> _ =>
-      cancelTimer(CartActions.CartTimer.toString)
+      cancelTimer(CartTimer.toString)
     case InCheckout -> NonEmpty =>
-      setTimer(CartActions.CartTimer.toString, CartActions.TimerExpired, 15.second)
+      setTimer(CartTimer.toString, TimerExpired, 15.second)
   }
 
   whenUnhandled {

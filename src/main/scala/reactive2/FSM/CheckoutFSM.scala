@@ -1,16 +1,16 @@
 package reactive2.FSM
 
-import akka.actor.{ActorRef, FSM}
+import akka.actor.{ActorRef, FSM, Props}
 import reactive2._
 
 import scala.concurrent.duration._
 
-sealed trait Command
+//sealed trait Command
 case class SelectDeliveryMethod(deliveryMethod: String)
 case class SelectPaymentMethod(paymentMethod: String)
 
 
-sealed trait Event
+//sealed trait Event
 case class DeliveryMethodSelected(deliveryMethod: String)
 case class PaymentMethodSelected(paymentMethod: String)
 case class PaymentServiceStarted(paymentRef: ActorRef)
@@ -34,7 +34,7 @@ case object Closed extends CheckoutState
 case class CheckoutData(items: List[String], deliveryMethod: Option[String] = None, paymentMethod: Option[String] = None)
 
 
-class CheckoutFSM(cartActor: ActorRef, items: List[String]) extends FSM[CheckoutState, CheckoutData] {
+class CheckoutFSM(orderManager: ActorRef, cartActor: ActorRef, items: List[String]) extends FSM[CheckoutState, CheckoutData] {
 
   var deliveryMethodSelected: Boolean = false
   var paymentMethodSelected: Boolean = false
@@ -61,19 +61,20 @@ class CheckoutFSM(cartActor: ActorRef, items: List[String]) extends FSM[Checkout
       paymentMethodSelected = true
       //w razie gdyby nie przyszla wiadomosc - flagi na potwierdzenie przyjscia wiadomosci
       if (deliveryMethodSelected && paymentMethodSelected) {
-        //implementacja paymenta val paymentActor = context.system.actorOf()
-        sender ! PaymentServiceStarted(paymentActor)
-        goto(ProcessingPayment) using CheckoutData(itemsList, delivery, Some(paymentMethod))
+        val paymentActor = context.system.actorOf(Props[Payment])
+//        sender ! PaymentServiceStarted(paymentActor)
+        goto(ProcessingPayment) using CheckoutData(itemsList, delivery, Some(paymentMethod)) replying PaymentServiceStarted(paymentActor)
       }
       else {
+        paymentMethodSelected = false
         stay
       }
   }
 
   when(ProcessingPayment) {
     case Event(PaymentReceive, _) =>
-      println("finishing... ")
-      //      close
+      println("recerived payment receive")
+      close
       stay
   }
 
@@ -92,7 +93,7 @@ class CheckoutFSM(cartActor: ActorRef, items: List[String]) extends FSM[Checkout
     case Event(CheckoutTimerExpired, _) =>
       cancel
       stay
-    case Event(CheckoutTimerExpired, _) =>
+    case Event(PaymentTimerExpired, _) =>
       cancel
       stay
     case Event(e, s) ⇒
@@ -102,13 +103,14 @@ class CheckoutFSM(cartActor: ActorRef, items: List[String]) extends FSM[Checkout
   }
 
   def cancel {
-    cartActor ! CartActions.CancelCheckout
+    cartActor ! CancelCheckout
     context stop self
 
   }
 
   def close {
-    cartActor ! CartActions.CloseCheckout
+    cartActor ! CheckoutClosed
+    orderManager ! CheckoutClosed
     context stop self
   }
 
