@@ -1,8 +1,9 @@
-package reactive2
+package reactive2.FSM
 
 import akka.actor.{Actor, ActorRef, Props}
 import akka.event.LoggingReceive
 import reactive2.Shop.system
+import reactive2.{Cart, CartActions, CheckoutActions}
 
 
 object ShopActor {

@@ -1,9 +1,24 @@
-package reactive2
+package reactive2.FSM
 
-import akka.actor.{FSM, Props}
+import akka.actor.{ActorRef, FSM, Props}
+import reactive2._
 
 import scala.concurrent.duration._
 
+sealed trait Command
+case object StartCheckout
+case object CancelCheckout
+case object CloseCheckout
+
+sealed trait Event
+case class ItemAdded(id: String)
+case class ItemRemoved(id: String)
+case class CheckoutStarted (checkoutRef: ActorRef)
+case object CheckoutCancelled
+case object CheckoutClosed
+
+case object TimerExpired
+case object CartTimer
 
 // states
 sealed trait CartState
@@ -20,25 +35,25 @@ class CartFSM extends FSM[CartState, CartData] {
   startWith(Empty, initialData)
 
   when(Empty) {
-    case Event(CartActions.AddItem(id), _) =>
+    case Event(Messages.AddItem(id), _) =>
       println("adding item")
-      sender ! CartActions.ItemAdded(id)
+      sender ! ItemAdded(id)
       goto(NonEmpty) using ItemsList(List(id))
   }
 
   when(NonEmpty) {
-    case Event(CartActions.AddItem(id), ItemsList(receivedData)) =>
+    case Event(Messages.AddItem(id), ItemsList(receivedData)) =>
       println("adding item")
-      sender ! CartActions.ItemAdded(id)
+      sender ! ItemAdded(id)
       stay using ItemsList(receivedData ++ List(id))
-    case Event(CartActions.RemoveItem(id), ItemsList(receivedData)) =>
+    case Event(Messages.RemoveItem(id), ItemsList(receivedData)) =>
       if (!receivedData.contains(id)) {
-        sender ! CartActions.Failed
+        sender ! Messages.Failed
         stay using ItemsList(receivedData)
       }
       else {
         println("removing item")
-        sender ! CartActions.ItemRemoved(id)
+        sender ! ItemRemoved(id)
         receivedData.filter(item => item != id) match {
           case list if list.isEmpty => goto(Empty) using ItemsList(list)
           case list => stay using ItemsList(list)
@@ -48,10 +63,11 @@ class CartFSM extends FSM[CartState, CartData] {
     case Event(CartActions.TimerExpired, _) =>
       println("chart time expired")
       goto(Empty) using ItemsList(List())
-    case Event(CartActions.StartCheckout, ItemsList(items)) =>
+    case Event(StartCheckout, ItemsList(items)) =>
       val checkoutActorFSM = context.system.actorOf(Props(new CheckoutFSM(context.self, items)))
-      checkoutActorFSM ! CartActions.CheckoutStarted
-      goto(InCheckout) using ItemsList(items)
+      checkoutActorFSM ! CheckoutStarted(checkoutActorFSM)
+      //replying to Order Manager startedCheckout and actorRef
+      goto(InCheckout) using ItemsList(items) replying CheckoutStarted(checkoutActorFSM)
   }
 
   when(InCheckout) {
