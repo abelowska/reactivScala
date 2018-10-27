@@ -1,6 +1,7 @@
 package reactive2
 
 import akka.actor.{ActorSystem, Props}
+import reactive2.FSM.ShopActor
 
 object Shop extends App {
 

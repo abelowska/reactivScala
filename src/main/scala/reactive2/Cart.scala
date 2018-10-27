@@ -10,8 +10,6 @@ import scala.collection.mutable.ListBuffer
 object CartActions {
 
   sealed trait Command
-  case class AddItem(id: String) extends Command
-  case class RemoveItem(id: String) extends Command
   case object StartCheckout
   case object CancelCheckout
   case object CloseCheckout
