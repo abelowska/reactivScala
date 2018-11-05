@@ -1,7 +1,7 @@
 import akka.actor.{ActorSystem, Props}
 import reactive2.FSM.{CartFSM, Messages}
 
-object DupaTest {
+object BasicCartTest {
 
   def main(args: Array[String]): Unit = {
 
