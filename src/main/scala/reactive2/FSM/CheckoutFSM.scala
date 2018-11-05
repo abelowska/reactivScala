@@ -31,15 +31,15 @@ case object ProcessingPayment extends CheckoutState
 case object Cancelled extends CheckoutState
 case object Closed extends CheckoutState
 
-case class CheckoutData(items: List[String], deliveryMethod: Option[String] = None, paymentMethod: Option[String] = None)
+case class CheckoutData(cart: CartData, deliveryMethod: Option[String] = None, paymentMethod: Option[String] = None)
 
 
-class CheckoutFSM(orderManager: ActorRef, cartActor: ActorRef, items: List[String]) extends FSM[CheckoutState, CheckoutData] {
+class CheckoutFSM(orderManager: ActorRef, cartActor: ActorRef, cart: CartData) extends FSM[CheckoutState, CheckoutData] {
 
   var deliveryMethodSelected: Boolean = false
   var paymentMethodSelected: Boolean = false
 
-  startWith(Init, CheckoutData(items))
+  startWith(Init, CheckoutData(cart))
 
   when(Init) {
     case Event(CheckoutStarted(_), checkoutData) =>

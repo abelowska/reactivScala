@@ -42,25 +42,25 @@ class OrderManager extends FSM[OrderManagerState, OrderManagerData] {
   startWith(OrderManagerState.Uninitialized, OrderManagerData.Empty())
 
   when(OrderManagerState.Uninitialized) {
-    case Event(Messages.AddItem(itemId), OrderManagerData.Empty()) =>
+    case Event(Messages.AddItem(itemId, count), OrderManagerData.Empty()) =>
       println("received: add item message")
       val cartActor = context.system.actorOf(Props[CartFSM])
-      cartActor ! Messages.AddItem(itemId)
+      cartActor ! Messages.AddItem(itemId, count)
       goto(OrderManagerState.Open) using OrderManagerData.CartDataWithSender(cartActor, sender)
   }
 
   when(OrderManagerState.Open) {
-    case Event(Messages.AddItem(itemId), OrderManagerData.CartData(cartRef)) =>
+    case Event(Messages.AddItem(itemId, count), OrderManagerData.CartData(cartRef)) =>
       println("receive: add item")
-      cartRef ! Messages.AddItem(itemId)
+      cartRef ! Messages.AddItem(itemId, count)
       stay using OrderManagerData.CartDataWithSender(cartRef, sender)
     case Event(ItemAdded(_), OrderManagerData.CartDataWithSender(cartRef, sender)) =>
       println("received: item added")
       sender ! Done
       stay using OrderManagerData.CartData(cartRef)
-    case Event(Messages.RemoveItem(itemId), OrderManagerData.CartData(cartRef)) =>
+    case Event(Messages.RemoveItem(itemId, count), OrderManagerData.CartData(cartRef)) =>
       println("received: remove item")
-      cartRef ! Messages.RemoveItem(itemId)
+      cartRef ! Messages.RemoveItem(itemId, count)
       stay using OrderManagerData.CartDataWithSender(cartRef, sender)
     case Event(ItemRemoved(_), OrderManagerData.CartDataWithSender(cartRef, sender)) =>
       println("received: item removed")
