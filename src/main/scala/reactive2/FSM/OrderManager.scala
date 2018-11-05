@@ -62,7 +62,7 @@ class OrderManager extends FSM[OrderManagerState, OrderManagerData] {
       println("received: remove item")
       cartRef ! Messages.RemoveItem(itemId, count)
       stay using OrderManagerData.CartDataWithSender(cartRef, sender)
-    case Event(ItemRemoved(), OrderManagerData.CartDataWithSender(cartRef, sender)) =>
+    case Event(ItemRemoved(_, _), OrderManagerData.CartDataWithSender(cartRef, sender)) =>
       println("received: item removed")
       sender ! Done
       stay using OrderManagerData.CartData(cartRef)

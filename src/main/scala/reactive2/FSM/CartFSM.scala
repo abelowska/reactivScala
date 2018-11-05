@@ -17,13 +17,14 @@ case object CloseCheckout
 //sealed trait Event
 sealed trait CartEvent
 case class ItemAdded(id: String, count: Int) extends CartEvent
-case class ItemRemoved() extends CartEvent
-case class EmptinessChecked(id: String, count: Int) extends CartEvent
+case class ItemRemoved(id: String, count: Int) extends CartEvent
 case class CheckoutStarted(checkoutRef: ActorRef) extends CartEvent
 case object CheckoutCancelled extends CartEvent
 case object CheckoutClosed extends CartEvent
 case object CartEmpty extends CartEvent
 case object TimerExpired extends CartEvent
+case object TimerStarted extends CartEvent
+case object TimerStopped extends CartEvent
 
 case object CartTimer
 
@@ -34,9 +35,6 @@ case object Empty extends CartState {
 }
 case object NonEmpty extends CartState {
   override def identifier: String = "NonEmpty"
-}
-case object CheckEmptiness extends CartState {
-  override def identifier: String = "CheckEmptiness"
 }
 case object InCheckout extends CartState {
   override def identifier: String = "InCheckout"
@@ -60,7 +58,9 @@ case class Cart(items: Map[URI, Item]) extends CartData {
     //TODO add validating count
     val item = items(uri)
     if (item.count - count > 0 ) {
-      copy(items = items.updated(item.uri, item.copy(count = items(item.uri).count - item.count)))
+      val newCount = items(item.uri).count - count
+      println("lalalla  " + newCount)
+      copy(items = items.updated(item.uri, item.copy(count = newCount)))
     } else {
       copy(items = items - uri)
     }
@@ -77,51 +77,52 @@ class CartFSM(_persistenceId: String = "persistent-toggle-fsm-id-1")(implicit va
     case Event(Messages.AddItem(id, count), _) =>
       println("adding item")
       sender ! ItemAdded(id, count)
-      goto(NonEmpty) applying ItemAdded(id, count)
+      goto(NonEmpty) applying (ItemAdded(id, count), TimerStarted)
   }
 
   when(NonEmpty) {
     case Event(Messages.AddItem(id, count), _) =>
       println("adding item")
       sender ! ItemAdded(id, count)
+//      saveStateSnapshot()
       stay applying ItemAdded(id, count)
-    case Event(Messages.RemoveItem(id, count), _) =>
+    case Event(Messages.RemoveItem(id, count), cart) =>
       println("removing item")
-      sender ! ItemRemoved()
-      goto(CheckEmptiness) applying EmptinessChecked(id, count) andThen {
-        case newCart if newCart.items.isEmpty =>
-          saveStateSnapshot()
-          goto(Empty) applying ItemRemoved()
-        case newCart =>
-          saveStateSnapshot()
-          stay applying ItemRemoved()
+      sender ! ItemRemoved(id, count)
+
+      if(cart.removeItem(new URI(id), count).items.isEmpty) {
+//        saveStateSnapshot()
+        goto(Empty) applying (ItemRemoved(id, count), TimerStopped)
+      } else {
+//        saveStateSnapshot()
+        stay applying ItemRemoved(id, count)
       }
     case Event(TimerExpired, _) =>
       println("chart time expired")
-      goto(Empty) applying CartEmpty
+      goto(Empty) applying TimerExpired
     case Event(StartCheckout, cart) =>
       val checkoutActorFSM = context.system.actorOf(Props(new CheckoutFSM(context.parent, context.self, cart)))
       checkoutActorFSM ! CheckoutStarted(checkoutActorFSM)
       //replying to Order Manager startedCheckout and actorRef
-      goto(InCheckout) applying CheckoutStarted(null) replying CheckoutStarted(checkoutActorFSM)
+      goto(InCheckout) applying (CheckoutStarted(null), TimerStopped) replying CheckoutStarted(checkoutActorFSM)
   }
 
   when(InCheckout) {
     case Event(CancelCheckout, _) =>
-      goto(NonEmpty) applying CheckoutCancelled
+      goto(NonEmpty) applying (CheckoutCancelled, TimerStarted)
     case Event(CheckoutClosed, _) =>
       context.parent ! CartEmpty
       goto(Empty) applying CheckoutClosed
   }
 
-  onTransition {
-    case Empty -> NonEmpty =>
-      setTimer(CartTimer.toString, TimerExpired, 15.second)
-    case NonEmpty -> _ =>
-      cancelTimer(CartTimer.toString)
-    case InCheckout -> NonEmpty =>
-      setTimer(CartTimer.toString, TimerExpired, 15.second)
-  }
+//  onTransition {
+//    case Empty -> NonEmpty =>
+//      setTimer(CartTimer.toString, TimerExpired, 15.second)
+//    case NonEmpty -> _ =>
+////      cancelTimer(CartTimer.toString)
+//    case InCheckout -> NonEmpty =>
+//      setTimer(CartTimer.toString, TimerExpired, 15.second)
+//  }
 
   whenUnhandled {
     case Event(e, s) ⇒
@@ -131,14 +132,28 @@ class CartFSM(_persistenceId: String = "persistent-toggle-fsm-id-1")(implicit va
   }
 
   override def applyEvent(event: CartEvent, cart: CartData): CartData = {
+    println(event + " " + cart)
     event match {
-      case ItemAdded(id, count) ⇒ cart.addItem(Item(new URI(id), id, 1000, count))
-      case ItemRemoved() => cart
-      case EmptinessChecked(id, count) => cart.removeItem(new URI(id), count)
-      case CartEmpty => Cart(Map.empty)
+      case ItemAdded(id, count) =>
+        println(event + "added")
+        println(cart)
+        cart.addItem(Item(new URI(id), id, 1000, count))
+      case ItemRemoved(id, count) =>
+        println(event + " removed")
+        cart.removeItem(new URI(id), count)
+      case CartEmpty =>
+        println(event + "empty")
+        Cart(Map.empty)
       case CheckoutStarted(_) => cart
       case CheckoutCancelled => cart
       case CheckoutClosed => Cart(Map.empty)
+      case TimerStarted =>
+        setTimer(CartTimer.toString, TimerExpired, 15.second)
+        cart
+      case TimerExpired => Cart(Map.empty)
+      case TimerStopped =>
+        cancelTimer(CartTimer.toString)
+        cart
     }
   }
 }
