@@ -1,9 +1,13 @@
 package reactive2.FSM
 
 import java.net.URI
+
+import akka.persistence.fsm.PersistentFSM.FSMState
 import akka.actor.{ActorRef, FSM, Props}
+import akka.persistence.fsm.PersistentFSM
 
 import scala.concurrent.duration._
+import scala.reflect.ClassTag
 
 //sealed trait Command
 case object StartCheckout
@@ -11,31 +15,39 @@ case object CancelCheckout
 case object CloseCheckout
 
 //sealed trait Event
-case class ItemAdded(id: String)
-case class ItemRemoved(id: String)
-case class CheckoutStarted(checkoutRef: ActorRef)
-case object CheckoutCancelled
-case object CheckoutClosed
-case object CartEmpty
+sealed trait CartEvent
+case class ItemAdded(id: String, count: Int) extends CartEvent
+case class ItemRemoved() extends CartEvent
+case class EmptinessChecked(id: String, count: Int) extends CartEvent
+case class CheckoutStarted(checkoutRef: ActorRef) extends CartEvent
+case object CheckoutCancelled extends CartEvent
+case object CheckoutClosed extends CartEvent
+case object CartEmpty extends CartEvent
+case object TimerExpired extends CartEvent
 
-case object TimerExpired
 case object CartTimer
 
 // states
-sealed trait CartState
-case object Empty extends CartState
-case object NonEmpty extends CartState
-case object InCheckout extends CartState
+sealed trait CartState extends FSMState
+case object Empty extends CartState {
+  override def identifier: String = "Empty"
+}
+case object NonEmpty extends CartState {
+  override def identifier: String = "NonEmpty"
+}
+case object CheckEmptiness extends CartState {
+  override def identifier: String = "CheckEmptiness"
+}
+case object InCheckout extends CartState {
+  override def identifier: String = "InCheckout"
+}
 
 //data
 sealed trait CartData {
   val items: Map[URI, Item]
-
   def addItem(item: Item): CartData
-
   def removeItem(uri: URI, count: Int): CartData
 }
-//case class CartContent(cart: Cart) extends CartData
 case class Item(uri: URI, id: String, price: BigDecimal, count: Int)
 
 case class Cart(items: Map[URI, Item]) extends CartData {
@@ -47,62 +59,59 @@ case class Cart(items: Map[URI, Item]) extends CartData {
   def removeItem(uri: URI, count: Int): Cart = {
     //TODO add validating count
     val item = items(uri)
-    println(item)
-    println(count)
-    println(item.count)
     if (item.count - count > 0 ) {
       copy(items = items.updated(item.uri, item.copy(count = items(item.uri).count - item.count)))
     } else {
-      println("dupa")
       copy(items = items - uri)
     }
   }
 }
 
-class CartFSM extends FSM[CartState, CartData] {
+class CartFSM(_persistenceId: String = "persistent-toggle-fsm-id-1")(implicit val domainEventClassTag: ClassTag[CartEvent]) extends PersistentFSM[CartState, CartData, CartEvent] {
+
+  override def persistenceId = _persistenceId
 
   startWith(Empty, Cart(Map.empty))
 
   when(Empty) {
-    case Event(Messages.AddItem(id, count), cart) =>
+    case Event(Messages.AddItem(id, count), _) =>
       println("adding item")
-      sender ! ItemAdded(id)
-      goto(NonEmpty) using cart.addItem(Item(new URI(id), id, 1000, count))
+      sender ! ItemAdded(id, count)
+      goto(NonEmpty) applying ItemAdded(id, count)
   }
 
   when(NonEmpty) {
-    case Event(Messages.AddItem(id, count), cart) =>
+    case Event(Messages.AddItem(id, count), _) =>
       println("adding item")
-      sender ! ItemAdded(id)
-      stay using cart.addItem(Item(new URI(id), id, 1000, count))
-    case Event(Messages.RemoveItem(id, count), cart) =>
+      sender ! ItemAdded(id, count)
+      stay applying ItemAdded(id, count)
+    case Event(Messages.RemoveItem(id, count), _) =>
       println("removing item")
-      sender ! ItemRemoved(id)
-
-      println(cart.items)
-      val newCart = cart.removeItem(new URI(id), count)
-      println(newCart.items)
-      newCart.items match {
-        case newCart.items if newCart.items.isEmpty => goto(Empty) using newCart
-        case newCart.items => stay using newCart
+      sender ! ItemRemoved()
+      goto(CheckEmptiness) applying EmptinessChecked(id, count) andThen {
+        case newCart if newCart.items.isEmpty =>
+          saveStateSnapshot()
+          goto(Empty) applying ItemRemoved()
+        case newCart =>
+          saveStateSnapshot()
+          stay applying ItemRemoved()
       }
-
     case Event(TimerExpired, _) =>
       println("chart time expired")
-      goto(Empty) using Cart(Map.empty)
+      goto(Empty) applying CartEmpty
     case Event(StartCheckout, cart) =>
       val checkoutActorFSM = context.system.actorOf(Props(new CheckoutFSM(context.parent, context.self, cart)))
       checkoutActorFSM ! CheckoutStarted(checkoutActorFSM)
       //replying to Order Manager startedCheckout and actorRef
-      goto(InCheckout) using cart replying CheckoutStarted(checkoutActorFSM)
+      goto(InCheckout) applying CheckoutStarted(null) replying CheckoutStarted(checkoutActorFSM)
   }
 
   when(InCheckout) {
-    case Event(CancelCheckout, cartData) =>
-      goto(NonEmpty) using cartData
+    case Event(CancelCheckout, _) =>
+      goto(NonEmpty) applying CheckoutCancelled
     case Event(CheckoutClosed, _) =>
       context.parent ! CartEmpty
-      goto(Empty) using Cart(Map.empty)
+      goto(Empty) applying CheckoutClosed
   }
 
   onTransition {
@@ -120,5 +129,16 @@ class CartFSM extends FSM[CartState, CartData] {
       context stop self
       stay
   }
-  initialize()
+
+  override def applyEvent(event: CartEvent, cart: CartData): CartData = {
+    event match {
+      case ItemAdded(id, count) ⇒ cart.addItem(Item(new URI(id), id, 1000, count))
+      case ItemRemoved() => cart
+      case EmptinessChecked(id, count) => cart.removeItem(new URI(id), count)
+      case CartEmpty => Cart(Map.empty)
+      case CheckoutStarted(_) => cart
+      case CheckoutCancelled => cart
+      case CheckoutClosed => Cart(Map.empty)
+    }
+  }
 }

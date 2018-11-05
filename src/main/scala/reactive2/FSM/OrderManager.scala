@@ -54,7 +54,7 @@ class OrderManager extends FSM[OrderManagerState, OrderManagerData] {
       println("receive: add item")
       cartRef ! Messages.AddItem(itemId, count)
       stay using OrderManagerData.CartDataWithSender(cartRef, sender)
-    case Event(ItemAdded(_), OrderManagerData.CartDataWithSender(cartRef, sender)) =>
+    case Event(ItemAdded(_, _), OrderManagerData.CartDataWithSender(cartRef, sender)) =>
       println("received: item added")
       sender ! Done
       stay using OrderManagerData.CartData(cartRef)
@@ -62,7 +62,7 @@ class OrderManager extends FSM[OrderManagerState, OrderManagerData] {
       println("received: remove item")
       cartRef ! Messages.RemoveItem(itemId, count)
       stay using OrderManagerData.CartDataWithSender(cartRef, sender)
-    case Event(ItemRemoved(_), OrderManagerData.CartDataWithSender(cartRef, sender)) =>
+    case Event(ItemRemoved(), OrderManagerData.CartDataWithSender(cartRef, sender)) =>
       println("received: item removed")
       sender ! Done
       stay using OrderManagerData.CartData(cartRef)
