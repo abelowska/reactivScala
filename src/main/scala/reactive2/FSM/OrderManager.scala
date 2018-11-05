@@ -3,7 +3,14 @@ package reactive2.FSM
 import akka.actor.{ActorRef, FSM, Props}
 
 sealed trait Command
-case class SelectDeliveryAndPaymentMethod(delivery: String, payment: String)
+object OrderManagerEvent {
+  case class SelectDeliveryAndPaymentMethod(delivery: String, payment: String)
+  case class SelectDeliveryMethod(delivery: String)
+  case class SelectPaymentMethod(payment: String)
+}
+
+sealed trait OrderEvent
+case object Persist
 
 sealed trait Ack
 case object Done extends Ack //trivial ACK
@@ -44,9 +51,13 @@ class OrderManager extends FSM[OrderManagerState, OrderManagerData] {
   when(OrderManagerState.Uninitialized) {
     case Event(Messages.AddItem(itemId, count), OrderManagerData.Empty()) =>
       println("received: add item message")
-      val cartActor = context.system.actorOf(Props[CartFSM])
+      val cartActor = context.system.actorOf(Props(new CartFSM(self)))
       cartActor ! Messages.AddItem(itemId, count)
       goto(OrderManagerState.Open) using OrderManagerData.CartDataWithSender(cartActor, sender)
+    case Event(Persist, OrderManagerData.Empty()) =>
+      println("received: persist message")
+      val cartActor = context.system.actorOf(Props(new CartFSM(self)))
+      goto(OrderManagerState.Open) using OrderManagerData.CartData(cartActor)
   }
 
   when(OrderManagerState.Open) {
@@ -74,20 +85,35 @@ class OrderManager extends FSM[OrderManagerState, OrderManagerData] {
       println("received: checkout started")
       sender ! Done
       goto(OrderManagerState.InCheckout) using OrderManagerData.InCheckoutData(checkoutRef)
+    case Event(CheckoutStarted(checkoutRef), OrderManagerData.CartData(_)) =>
+      println("received: checkout started persist one")
+      sender ! Done
+      goto(OrderManagerState.InCheckout) using OrderManagerData.InCheckoutData(checkoutRef)
   }
 
   when(OrderManagerState.InCheckout) {
-    case Event(SelectDeliveryAndPaymentMethod(deliveryMethod, paymentMethod), OrderManagerData.InCheckoutData(checkoutRef)) =>
+    case Event(OrderManagerEvent.SelectDeliveryAndPaymentMethod(deliveryMethod, paymentMethod), OrderManagerData.InCheckoutData(checkoutRef)) =>
       println("received: select delivery and payment method")
       checkoutRef ! SelectDeliveryMethod(deliveryMethod)
       checkoutRef ! SelectPaymentMethod(paymentMethod)
       stay using OrderManagerData.InCheckoutDataWithSender(checkoutRef, sender)
-    case Event(DeliveryMethodSelected(_), OrderManagerData.InCheckoutDataWithSender(_, _)) =>
+
+    case Event(OrderManagerEvent.SelectDeliveryMethod(delivery), OrderManagerData.InCheckoutData(checkoutRef)) =>
+      println("received: select delivery method")
+      checkoutRef ! SelectDeliveryMethod(delivery)
+      stay using OrderManagerData.InCheckoutDataWithSender(checkoutRef, sender)
+
+    case Event(OrderManagerEvent.SelectPaymentMethod(payment), OrderManagerData.InCheckoutData(checkoutRef)) =>
+      checkoutRef ! SelectPaymentMethod(payment)
+      stay using OrderManagerData.InCheckoutDataWithSender(checkoutRef, sender)
+
+    case Event(DeliveryMethodSelected(_), OrderManagerData.InCheckoutDataWithSender(checkoutRef, _)) =>
       println("received: delivery method selected")
-      stay
-    case Event(PaymentMethodSelected(_), OrderManagerData.InCheckoutDataWithSender(_, _)) =>
+      stay using OrderManagerData.InCheckoutData(checkoutRef)
+
+    case Event(PaymentMethodSelected(_), OrderManagerData.InCheckoutDataWithSender(checkoutRef, sender)) =>
       println("received: payment method selected")
-      stay
+      stay using OrderManagerData.InCheckoutDataWithSender(checkoutRef, sender)
     case Event(PaymentServiceStarted(paymentRef), OrderManagerData.InCheckoutDataWithSender(_, sender)) =>
       println("received: payment service started")
       sender ! Done

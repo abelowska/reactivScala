@@ -37,7 +37,7 @@ class OrderManagerTest
 
       sendMessageAndValidateState(orderManager, Buy, OrderManagerState.InCheckout)
 
-      sendMessageAndValidateState(orderManager, SelectDeliveryAndPaymentMethod("paypal", "inpost"), InPayment)
+      sendMessageAndValidateState(orderManager, OrderManagerEvent.SelectDeliveryAndPaymentMethod("paypal", "inpost"), InPayment)
 
       sendMessageAndValidateState(orderManager, Pay, Finished)
     }
