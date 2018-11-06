@@ -58,7 +58,12 @@ object BasicCartTest extends TestKit(ActorSystem("BasicCartTest")) with ScalaFut
 //    }
 
     val orderManager = system.actorOf(Props[OrderManager])
+
     orderManager ! Persist
+    Thread.sleep(4000)
+    orderManager ! OrderManagerEvent.SelectPaymentMethod("bubuub")
+    Thread.sleep(4000)
+    orderManager ! Messages.Pay
 
 //    orderManager ! Messages.AddItem("ania", 4)
 //    Thread.sleep(2000)
@@ -66,10 +71,7 @@ object BasicCartTest extends TestKit(ActorSystem("BasicCartTest")) with ScalaFut
 //    Thread.sleep(2000)
 //    orderManager ! OrderManagerEvent.SelectDeliveryMethod("lalla")
 
-    Thread.sleep(4000)
-    orderManager ! OrderManagerEvent.SelectPaymentMethod("bubuub")
-    Thread.sleep(4000)
-    orderManager ! Messages.Pay
+//
 
 
 

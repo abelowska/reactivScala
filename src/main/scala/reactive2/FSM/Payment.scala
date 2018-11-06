@@ -1,6 +1,6 @@
 package reactive2.FSM
 
-import akka.actor.Actor
+import akka.actor.{Actor, ActorRef}
 
 object PaymentActions {
   sealed trait Events
@@ -8,12 +8,12 @@ object PaymentActions {
   case object PaymentReceived
 }
 
-class Payment extends Actor{
+class Payment(checkoutActor: ActorRef) extends Actor{
   override def receive: Receive = {
     case Messages.Pay =>
-      println("received in Payment Actor pay")
+      println("       Payment received: pay")
       sender ! PaymentActions.PaymentConfirmed
-      context.parent ! PaymentActions.PaymentReceived
+      checkoutActor ! PaymentActions.PaymentReceived
     case _ => Messages.Failed
   }
 }

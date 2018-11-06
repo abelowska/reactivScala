@@ -47,10 +47,10 @@ case object Closed extends CheckoutState {
   override def identifier: String = "Closed"
 }
 
-case class CheckoutData(cart: CartData, deliveryMethod: Option[String] = None, paymentMethod: Option[String] = None)
+case class CheckoutData(cart: Cart, deliveryMethod: Option[String] = None, paymentMethod: Option[String] = None)
 
 
-class CheckoutFSM(orderManager: ActorRef, cartActor: ActorRef, cartData: CartData, checkoutId: String = "checkout_id")(implicit val domainEventClassTag: ClassTag[CheckoutEvent]) extends PersistentFSM[CheckoutState, CheckoutData, CheckoutEvent] {
+class CheckoutFSM(orderManager: ActorRef, cartActor: ActorRef, cartData: Cart, checkoutId: String = "checkout_id")(implicit val domainEventClassTag: ClassTag[CheckoutEvent]) extends PersistentFSM[CheckoutState, CheckoutData, CheckoutEvent] {
 
   var deliveryMethodSelected: Boolean = false
   var paymentMethodSelected: Boolean = false
@@ -71,7 +71,7 @@ class CheckoutFSM(orderManager: ActorRef, cartActor: ActorRef, cartData: CartDat
 
   when(SelectingDelivery) {
     case Event(SelectDeliveryMethod(deliveryMethod), _) =>
-      println("selecting delivery ")
+      println("     CheckoutFSM receive: selecting delivery ")
       deliveryMethodSelected = true
       sender ! DeliveryMethodSelected(deliveryMethod)
       goto(SelectingPaymentMethod) applying DeliveryMethodSelected(deliveryMethod)
@@ -79,7 +79,7 @@ class CheckoutFSM(orderManager: ActorRef, cartActor: ActorRef, cartData: CartDat
 
   when(SelectingPaymentMethod) {
     case Event(SelectPaymentMethod(paymentMethod), _) =>
-      println("selecting payment ")
+      println("     CheckoutFSM receive: selecting payment ")
       sender ! PaymentMethodSelected(paymentMethod)
       paymentMethodSelected = true
       //w razie gdyby nie przyszla wiadomosc - flagi na potwierdzenie przyjscia wiadomosci
@@ -87,9 +87,9 @@ class CheckoutFSM(orderManager: ActorRef, cartActor: ActorRef, cartData: CartDat
   }
 
   when(ProcessingPayment) {
-    case Event(PaymentReceived, _) =>
-      println("received: payment receive")
-      stay applying PaymentReceived
+    case Event(PaymentActions.PaymentReceived, _) =>
+      println("     CheckoutFSM received: payment receive")
+      stay applying (PaymentReceived, PaymentTimerStopped)
   }
 
 //  onTransition {
@@ -121,23 +121,25 @@ class CheckoutFSM(orderManager: ActorRef, cartActor: ActorRef, cartData: CartDat
   }
 
   def close {
+    cancelTimer(PaymentTimer.toString)
     cartActor ! CheckoutClosed
     orderManager ! CheckoutClosed
     context stop self
   }
 
   override def applyEvent(event: CheckoutEvent, currentData: CheckoutData): CheckoutData = {
-    println(event)
+    println("     CheckoutFSM: applyEvent " + event)
     event match {
       case DeliveryMethodSelected(deliveryMethod) =>
         currentData.copy(deliveryMethod = Some(deliveryMethod))
 
       case PaymentMethodSelected(paymentMethod) =>
-        println("payment service started")
-        val paymentActor = context.system.actorOf(Props[Payment])
+        println("     CheckoutFSM: applyEvent  payment service started")
+        val paymentActor = context.system.actorOf(Props(new Payment(self)))
         sender ! PaymentServiceStarted(paymentActor)
         currentData.copy(paymentMethod = Some(paymentMethod))
       case PaymentReceived =>
+        println("     CheckoutFSM: applyEvent  payment receive")
         close
         currentData
 //      case CheckoutTimerStarted =>

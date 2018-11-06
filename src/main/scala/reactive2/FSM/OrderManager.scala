@@ -50,93 +50,94 @@ class OrderManager extends FSM[OrderManagerState, OrderManagerData] {
 
   when(OrderManagerState.Uninitialized) {
     case Event(Messages.AddItem(itemId, count), OrderManagerData.Empty()) =>
-      println("received: add item message")
+      println("OrderManager received: add item message")
       val cartActor = context.system.actorOf(Props(new CartFSM(self)))
       cartActor ! Messages.AddItem(itemId, count)
       goto(OrderManagerState.Open) using OrderManagerData.CartDataWithSender(cartActor, sender)
     case Event(Persist, OrderManagerData.Empty()) =>
-      println("received: persist message")
+      println("rOrderManager received: persist message")
       val cartActor = context.system.actorOf(Props(new CartFSM(self)))
       goto(OrderManagerState.Open) using OrderManagerData.CartData(cartActor)
   }
 
   when(OrderManagerState.Open) {
     case Event(Messages.AddItem(itemId, count), OrderManagerData.CartData(cartRef)) =>
-      println("receive: add item")
+      println("OrderManager receive: add item")
       cartRef ! Messages.AddItem(itemId, count)
       stay using OrderManagerData.CartDataWithSender(cartRef, sender)
     case Event(ItemAdded(_, _), OrderManagerData.CartDataWithSender(cartRef, sender)) =>
-      println("received: item added")
+      println("OrderManager received: item added")
       sender ! Done
       stay using OrderManagerData.CartData(cartRef)
     case Event(Messages.RemoveItem(itemId, count), OrderManagerData.CartData(cartRef)) =>
-      println("received: remove item")
+      println("OrderManager received: remove item")
       cartRef ! Messages.RemoveItem(itemId, count)
       stay using OrderManagerData.CartDataWithSender(cartRef, sender)
     case Event(ItemRemoved(_, _), OrderManagerData.CartDataWithSender(cartRef, sender)) =>
-      println("received: item removed")
+      println("OrderManager received: item removed")
       sender ! Done
       stay using OrderManagerData.CartData(cartRef)
     case Event(Messages.Buy, OrderManagerData.CartData(cartRef)) =>
-      println("received: buy massage")
+      println("OrderManager received: buy massage")
       cartRef ! StartCheckout
       stay using OrderManagerData.CartDataWithSender(cartRef, sender)
     case Event(CheckoutStarted(checkoutRef), OrderManagerData.CartDataWithSender(_, sender)) =>
-      println("received: checkout started")
+      println("OrderManager received: checkout started")
       sender ! Done
       goto(OrderManagerState.InCheckout) using OrderManagerData.InCheckoutData(checkoutRef)
     case Event(CheckoutStarted(checkoutRef), OrderManagerData.CartData(_)) =>
-      println("received: checkout started persist one")
+      println("OrderManager received: checkout started persist one")
       sender ! Done
       goto(OrderManagerState.InCheckout) using OrderManagerData.InCheckoutData(checkoutRef)
   }
 
   when(OrderManagerState.InCheckout) {
     case Event(OrderManagerEvent.SelectDeliveryAndPaymentMethod(deliveryMethod, paymentMethod), OrderManagerData.InCheckoutData(checkoutRef)) =>
-      println("received: select delivery and payment method")
+      println("OrderManager received: select delivery and payment method")
       checkoutRef ! SelectDeliveryMethod(deliveryMethod)
       checkoutRef ! SelectPaymentMethod(paymentMethod)
       stay using OrderManagerData.InCheckoutDataWithSender(checkoutRef, sender)
 
     case Event(OrderManagerEvent.SelectDeliveryMethod(delivery), OrderManagerData.InCheckoutData(checkoutRef)) =>
-      println("received: select delivery method")
+      println("OrderManager received: select delivery method")
       checkoutRef ! SelectDeliveryMethod(delivery)
       stay using OrderManagerData.InCheckoutDataWithSender(checkoutRef, sender)
 
     case Event(OrderManagerEvent.SelectPaymentMethod(payment), OrderManagerData.InCheckoutData(checkoutRef)) =>
+      println("OrderManager received: select payment method")
       checkoutRef ! SelectPaymentMethod(payment)
       stay using OrderManagerData.InCheckoutDataWithSender(checkoutRef, sender)
 
     case Event(DeliveryMethodSelected(_), OrderManagerData.InCheckoutDataWithSender(checkoutRef, _)) =>
-      println("received: delivery method selected")
+      println("OrderManager received: delivery method selected")
       stay using OrderManagerData.InCheckoutData(checkoutRef)
 
     case Event(PaymentMethodSelected(_), OrderManagerData.InCheckoutDataWithSender(checkoutRef, sender)) =>
-      println("received: payment method selected")
+      println("OrderManager received: payment method selected")
       stay using OrderManagerData.InCheckoutDataWithSender(checkoutRef, sender)
     case Event(PaymentServiceStarted(paymentRef), OrderManagerData.InCheckoutDataWithSender(_, sender)) =>
-      println("received: payment service started")
+      println("OrderManager received: payment service started")
       sender ! Done
       goto(OrderManagerState.InPayment) using OrderManagerData.InPaymentData(paymentRef)
   }
 
   when(OrderManagerState.InPayment) {
     case Event(Messages.Pay, OrderManagerData.InPaymentData(paymentRef)) =>
-      println("received: pay")
+      println("OrderManager received: pay")
       paymentRef ! Messages.Pay
       stay using OrderManagerData.InPaymentDataWithSender(paymentRef, sender)
     case Event(PaymentActions.PaymentConfirmed, OrderManagerData.InPaymentDataWithSender(paymentRef, sender))  =>
-      println("received: payment confirmed")
+      println("OrderManager received: payment confirmed")
       sender ! Done
       goto(OrderManagerState.Finished) using OrderManagerData.Empty()
   }
 
   when(OrderManagerState.Finished) {
     case Event(CheckoutClosed, OrderManagerData.Empty()) =>
-      println("received: checkout closed")
+      println("OrderManager received: checkout closed")
       stay
     case Event(CartEmpty, OrderManagerData.Empty()) =>
-      println("received: cart empty")
+      println("OrderManager received: cart empty")
       stay
   }
 
